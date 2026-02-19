@@ -52,10 +52,5 @@
     ],
     "category": "Development",
     "artifactName": "${productName}-Linux-${version}-${arch}.${ext}"
-  },
-  "publish": {
-    "provider": "github",
-    "owner": "${{ github.repository_owner }}",
-    "repo": "adb-manager"
   }
 }
