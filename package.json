@@ -9,10 +9,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
-    "build:mac": "tsc && vite build && electron-builder --mac",
-    "build:win": "tsc && vite build && electron-builder --win",
-    "build:linux": "tsc && vite build && electron-builder --linux",
-    "build:all": "tsc && vite build && electron-builder --mac --win --linux",
+    "build:mac": "tsc && vite build && electron-builder --mac --publish never",
+    "build:win": "tsc && vite build && electron-builder --win --publish never",
+    "build:linux": "tsc && vite build && electron-builder --linux --publish never",
+    "build:all": "tsc && vite build && electron-builder --mac --win --linux --publish never",
+    "build:mirror": "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ npm run build:all",
+    "release": "tsc && vite build && electron-builder --mac --win --linux --publish always",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "dist": "npm run build:all"

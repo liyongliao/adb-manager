@@ -47,13 +47,15 @@ npm run dev
 
 ## Building
 
-### Build for Current Platform
+### Local Development
+
+#### Build for Current Platform
 
 ```bash
 npm run build
 ```
 
-### Build for Specific Platforms
+#### Build for Specific Platforms
 
 #### macOS
 ```bash
@@ -70,13 +72,12 @@ npm run build:win
 npm run build:linux
 ```
 
-### Build for All Platforms
-
+#### Build for All Platforms
 ```bash
 npm run build:all
 ```
 
-### Using Build Scripts
+#### Using Build Scripts
 
 For convenience, you can use the provided build scripts:
 
@@ -89,6 +90,45 @@ For convenience, you can use the provided build scripts:
 ```bash
 build.bat
 ```
+
+### GitHub Actions CI/CD
+
+This project uses GitHub Actions for automated building and releasing:
+
+#### Automated Workflows
+
+1. **CI Pipeline** (`.github/workflows/ci.yml`)
+   - Runs on every push to main/develop branches
+   - Performs linting, type checking, and build tests
+
+2. **Build Pipeline** (`.github/workflows/build.yml`)
+   - Builds for all platforms on push/PR
+   - Uploads build artifacts
+
+3. **Release Pipeline** (`.github/workflows/release.yml`)
+   - Triggered by git tags starting with `v`
+   - Builds and publishes releases automatically
+
+#### Creating Releases
+
+**Automatic Release (Recommended):**
+```bash
+# Create and push a version tag
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+**Manual Release:**
+1. Go to GitHub Releases page
+2. Create a new release
+3. GitHub Actions will build and upload artifacts automatically
+
+#### Build Matrix
+
+The CI/CD builds for:
+- **macOS**: x64, arm64 (DMG)
+- **Windows**: x64, ia32 (NSIS installer)
+- **Linux**: x64 (AppImage, DEB)
 
 ## Release Artifacts
 

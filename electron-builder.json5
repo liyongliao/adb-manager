@@ -55,7 +55,7 @@
   },
   "publish": {
     "provider": "github",
-    "owner": "yourusername",
+    "owner": "${{ github.repository_owner }}",
     "repo": "adb-manager"
   }
 }
