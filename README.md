@@ -31,7 +31,7 @@ A modern ADB (Android Debug Bridge) manager application built with Electron, Rea
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/adb-manager.git
+git clone https://github.com/liyongliao/adb-manager.git
 cd adb-manager
 ```
 
