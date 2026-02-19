@@ -110,6 +110,22 @@ function setupDeviceTracking() {
     })
 }
 
+// Helper function to validate IP or hostname
+function isValidHost(host: string): boolean {
+  // Check if it's a valid IPv4 address
+  const ipv4Regex = /^\d{1,3}(\.\d{1,3}){3}$/
+  if (ipv4Regex.test(host)) {
+    // Validate each octet is 0-255
+    const octets = host.split('.').map(Number)
+    return octets.every(o => o >= 0 && o <= 255)
+  }
+  
+  // Check if it's a valid hostname/domain
+  // Allows: example.com, my-device.local, sub.domain.com, etc.
+  const hostnameRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+  return hostnameRegex.test(host)
+}
+
 // IPC Handlers
 ipcMain.handle('adb:list-devices', async () => {
   try {
@@ -163,22 +179,185 @@ ipcMain.handle('adb:disconnect', async (_, ip: string, port: number = 5555) => {
 })
 
 // Wireless ADB Pairing for Android 11+
-ipcMain.handle('adb:pair', async (_, ip: string, port: number = 5555, pairingCode: string) => {
+ipcMain.handle('adb:pair', async (_, ip: string, port: number, pairingCode: string) => {
   try {
-    return await client.pair(ip, port, pairingCode)
+    console.log(`Starting pairing with ${ip}:${port} using code: ${pairingCode}`)
+    
+    // Validate pairing code format (6 digits)
+    if (!/^\d{6}$/.test(pairingCode)) {
+      throw new Error('配对码格式错误，请输入6位数字')
+    }
+    
+    // Validate host (IP or domain name)
+    if (!isValidHost(ip)) {
+      throw new Error('地址格式错误，请输入正确的IP地址或域名')
+    }
+    
+    // Use adb command directly for pairing
+    const { spawn } = await import('node:child_process')
+    
+    const pairResult = await new Promise<string>((resolve, reject) => {
+      const childProcess = spawn('adb', ['pair', `${ip}:${port}`, pairingCode], { 
+        stdio: 'pipe',
+        env: {
+          ...process.env,
+          PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}`,
+        }
+      })
+      
+      let stdout = ''
+      let stderr = ''
+      
+      childProcess.stdout?.on('data', (data: Buffer) => {
+        stdout += data.toString()
+      })
+      
+      childProcess.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString()
+      })
+      
+      childProcess.on('close', (code: number | null) => {
+        if (code === 0) {
+          resolve(stdout || stderr)
+        } else {
+          reject(new Error(stderr || stdout || `adb pair exited with code ${code}`))
+        }
+      })
+      
+      childProcess.on('error', (err: Error) => {
+        reject(err)
+      })
+    })
+    
+    console.log('Pairing successful:', pairResult)
+    
+    // After successful pairing, automatically connect to the device
+    console.log('Auto-connecting after pairing...')
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    await client.connect(ip, 5555)
+    
+    return { success: true, message: '配对并连接成功' }
   } catch (err: any) {
     console.error('ADB Pair Error:', err)
-    throw err
+    
+    // Provide more specific error messages
+    if (err.message.includes('failed to connect')) {
+      throw new Error('无法连接到设备，请检查：\n1. 设备在同一网络中\n2. IP地址正确\n3. 设备已启用无线调试')
+    } else if (err.message.includes('authentication') || err.message.includes('pairing')) {
+      throw new Error('配对失败，请检查配对码是否正确且未过期')
+    } else if (err.message.includes('timeout')) {
+      throw new Error('连接超时，请重试')
+    } else {
+      throw new Error(`配对失败：${err.message}`)
+    }
   }
 })
 
 // Connect after pairing
 ipcMain.handle('adb:connect-paired', async (_, ip: string, port: number = 5555) => {
   try {
-    return await client.connect(ip, port)
+    console.log(`Connecting to paired device ${ip}:${port}`)
+    
+    // Validate host (IP or domain name)
+    if (!isValidHost(ip)) {
+      throw new Error('地址格式错误，请输入正确的IP地址或域名')
+    }
+    
+    const result = await client.connect(ip, port)
+    console.log('Connection successful:', result)
+    return { success: true, message: '连接成功' }
   } catch (err: any) {
     console.error('ADB Connect Error:', err)
-    throw err
+    
+    // Provide more specific error messages
+    if (err.message.includes('refused')) {
+      throw new Error('连接被拒绝，请确保设备已配对并启用TCP/IP调试')
+    } else if (err.message.includes('timeout')) {
+      throw new Error('连接超时，请检查网络连接')
+    } else if (err.message.includes('unreachable')) {
+      throw new Error('无法访问设备，请检查IP地址和网络连接')
+    } else {
+      throw new Error(`连接失败：${err.message}`)
+    }
+  }
+})
+
+// Network scanning for device discovery
+ipcMain.handle('adb:scan-network', async () => {
+  try {
+    const os = await import('node:os')
+    const { spawn } = await import('node:child_process')
+    
+    // Get local network segment
+    const networkInterfaces = os.networkInterfaces()
+    const localIPs = Object.values(networkInterfaces)
+      .flat()
+      .filter((iface: any) => iface.family === 'IPv4' && !iface.internal)
+      .map((iface: any) => iface.address)
+
+    if (localIPs.length === 0) {
+      throw new Error('无法获取本地网络信息')
+    }
+
+    // Extract network segment (e.g., 192.168.1 from 192.168.1.100)
+    const networkSegment = localIPs[0].split('.').slice(0, 3).join('.')
+    
+    interface DiscoveredDevice {
+      ip: string
+      port: number
+    }
+    
+    const checkPort = async (ip: string, port: number): Promise<DiscoveredDevice | null> => {
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          resolve(null)
+        }, 2000)
+
+        const childProcess = spawn('nc', ['-z', '-w1', ip, port.toString()], { stdio: 'ignore' })
+        
+        childProcess.on('close', (code: number | null) => {
+          clearTimeout(timeout)
+          if (code === 0) {
+            resolve({ ip, port })
+          } else {
+            resolve(null)
+          }
+        })
+
+        childProcess.on('error', () => {
+          clearTimeout(timeout)
+          resolve(null)
+        })
+      })
+    }
+    
+    // Scan common ports for ADB pairing
+    const scanPromises: Promise<DiscoveredDevice | null>[] = []
+    for (let i = 1; i <= 254; i++) {
+      const ip = `${networkSegment}.${i}`
+      
+      // Check pairing port (38627) and ADB port (5555)
+      scanPromises.push(checkPort(ip, 38627))
+      scanPromises.push(checkPort(ip, 5555))
+    }
+
+    const results = await Promise.allSettled(scanPromises)
+    const devices = results
+      .filter((result): result is PromiseFulfilledResult<DiscoveredDevice | null> => 
+        result.status === 'fulfilled' && result.value !== null
+      )
+      .map(result => result.value!)
+
+    // Remove duplicates
+    const uniqueDevices = devices.filter((device, index, self) =>
+      index === self.findIndex(d => d.ip === device.ip)
+    )
+
+    console.log(`Network scan found ${uniqueDevices.length} devices`)
+    return uniqueDevices
+  } catch (err: any) {
+    console.error('Network scan error:', err)
+    throw new Error(err.message || '网络扫描失败')
   }
 })
 

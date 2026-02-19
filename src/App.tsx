@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { DeviceCard } from './components/DeviceCard'
-import { MonitorSmartphone, Wifi, X, Home, ArrowLeft, Volume2, VolumeX, ChevronDown, Settings, Link } from 'lucide-react'
+import { DeviceDiscovery } from './components/DeviceDiscovery'
+import { MonitorSmartphone, Wifi, X, Home, ArrowLeft, Volume2, VolumeX, ChevronDown, Settings, Link, Search } from 'lucide-react'
 
 interface Device {
   id: string
@@ -15,6 +16,7 @@ function App() {
   const [devices, setDevices] = useState<Device[]>([])
   const [showConnectModal, setShowConnectModal] = useState(false)
   const [showPairModal, setShowPairModal] = useState(false)
+  const [showDiscoveryModal, setShowDiscoveryModal] = useState(false)
   const [ipAddress, setIpAddress] = useState('')
   const [pairingCode, setPairingCode] = useState('')
   const [isConnecting, setIsConnecting] = useState(false)
@@ -100,15 +102,21 @@ function App() {
 
     try {
       const host = ipAddress.includes(':') ? ipAddress.split(':')[0] : ipAddress
-      const port = ipAddress.includes(':') ? parseInt(ipAddress.split(':')[1]) : 5555
+      const port = ipAddress.includes(':') ? parseInt(ipAddress.split(':')[1]) : 38627 // Default pairing port
 
-      await window.ipcRenderer.invoke('adb:pair', host, port, pairingCode)
-      setShowPairModal(false)
-      setIpAddress('')
-      setPairingCode('')
+      const result = await window.ipcRenderer.invoke('adb:pair', host, port, pairingCode)
+      
+      // Show success message
+      if (result.success) {
+        setShowPairModal(false)
+        setIpAddress('')
+        setPairingCode('')
+        // Optional: Show success notification
+        console.log('✅ ' + result.message)
+      }
     } catch (err: any) {
-      setError('配对失败。请检查IP地址和配对码是否正确。')
-      console.error(err)
+      setError(err.message || '配对失败。请检查IP地址和配对码是否正确。')
+      console.error('Pairing error:', err)
     } finally {
       setIsPairing(false)
     }
@@ -263,6 +271,17 @@ function App() {
             )}
 
             <div className="flex gap-2 w-full sm:w-auto">
+              <button
+                onClick={async () => {
+                  await window.ipcRenderer.invoke('window:show')
+                  setShowDiscoveryModal(true)
+                }}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-all shadow-lg shadow-purple-900/20 active:scale-95"
+              >
+                <Search size={16} />
+                <span className="hidden sm:inline">发现</span>
+              </button>
+
               <button
                 onClick={async () => {
                   await window.ipcRenderer.invoke('window:show')
@@ -442,9 +461,14 @@ function App() {
                   <input
                     type="text"
                     value={pairingCode}
-                    onChange={(e) => setPairingCode(e.target.value)}
+                    onChange={(e) => {
+                      // Only allow numbers, max 6 digits
+                      const value = e.target.value.replace(/\D/g, '').slice(0, 6)
+                      setPairingCode(value)
+                    }}
                     placeholder="123456"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500/50 transition-all font-mono"
+                    maxLength={6}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500/50 transition-all font-mono text-center text-lg tracking-widest"
                   />
                   <p className="text-xs text-gray-500 mt-2">
                     6位数字配对码，有效期2分钟。
@@ -452,7 +476,7 @@ function App() {
                 </div>
 
                 {error && (
-                  <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
+                  <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm whitespace-pre-line">
                     {error}
                   </div>
                 )}
@@ -483,6 +507,24 @@ function App() {
               </form>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Device Discovery Modal */}
+      <AnimatePresence>
+        {showDiscoveryModal && (
+          <DeviceDiscovery
+            onPair={(ip, port) => {
+              setIpAddress(`${ip}:${port}`)
+              setShowDiscoveryModal(false)
+              if (port === 38627) {
+                setShowPairModal(true)
+              } else {
+                setShowConnectModal(true)
+              }
+            }}
+            onClose={() => setShowDiscoveryModal(false)}
+          />
         )}
       </AnimatePresence>
     </div>
